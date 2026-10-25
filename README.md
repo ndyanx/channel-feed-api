@@ -50,7 +50,7 @@ El repo incluye `render.yaml` (Blueprint), así que casi no hay nada que configu
 
 1. Sube el proyecto a GitHub (no se suben `node_modules`, `dist` ni `.cache`: están en `.gitignore`).
 2. En Render: **New > Blueprint**, elige el repo y confirma. Render lee `render.yaml`.
-3. Cuando termine el deploy, prueba `https://TU-SERVICIO.onrender.com/health` (debe dar `{"ok":true}`).
+3. Cuando termine el deploy, prueba `https://TU-SERVICIO.onrender.com/health` (debe dar `{"ok":true}`; `/` también).
 
 Qué hace el despliegue:
 
@@ -62,6 +62,24 @@ Qué hace el despliegue:
   todos los clientes como uno solo.
 - Plan `free`: el servicio se duerme tras ~15 min sin tráfico (el primer request tarda ~30-60 s)
   y el caché en memoria se pierde al dormirse. Para evitarlo, usa un plan de pago.
+
+### Mantenerlo despierto con UptimeRobot
+
+Render (plan free) duerme el servicio tras 15 min sin tráfico entrante. Un monitor que lo
+consulte cada 5 min cuenta como tráfico y evita que se duerma (y te avisa si se cae).
+
+1. Crea una cuenta gratis en [uptimerobot.com](https://uptimerobot.com).
+2. **+ Add New Monitor** > tipo **HTTP(s)**.
+3. URL: `https://TU-SERVICIO.onrender.com/health`
+4. Intervalo: **5 minutos** (el mínimo del plan gratis). Método **HEAD** o **GET**: ambos responden 200.
+
+Detalles:
+
+- Usa `/health` (o `/`). **No** apuntes el monitor a `/v1/channel`: cada chequeo gastaría peticiones a YouTube.
+- `/health` y `/` no tocan YouTube, ni el caché, ni cuentan para el límite por IP.
+- Un servicio free activo 24/7 usa ~720 de las 750 horas gratis del mes: alcanza para **uno** solo.
+- El plan gratis de UptimeRobot es solo para uso personal / no comercial (según sus términos).
+- Si el proyecto pasa a ser un servicio serio, el plan Starter de Render no se duerme y no necesita monitor.
 
 Si no usas Blueprint, crea un *Web Service* manual con esos mismos Build/Start Command, y las
 variables `NODE_VERSION=22`, `HOST=0.0.0.0`, `TRUST_PROXY=true` e

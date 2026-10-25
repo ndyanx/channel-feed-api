@@ -169,7 +169,10 @@ export function buildApp({ service, logger, gate, limits = false, trustProxy }: 
     },
   });
 
+  // Para monitores de uptime (UptimeRobot usa HEAD o GET) y el healthcheck de Render.
+  // Fastify crea el HEAD de cada GET automaticamente. Ninguna toca YouTube ni el cache.
   app.get("/health", async () => ({ ok: true }));
+  app.get("/", async () => ({ ok: true, service: "channel-feed-api" }));
 
   app.get("/v1/stats", async () => ({
     upstream: gate?.stats() ?? null,

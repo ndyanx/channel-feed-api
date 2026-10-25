@@ -134,3 +134,18 @@ it("GET /health", async () => {
   const { app } = build();
   assert.deepEqual((await get(app, "/health")).body, { ok: true });
 });
+
+describe("health (monitores de uptime)", () => {
+  for (const url of ["/health", "/"]) {
+    for (const method of ["GET", "HEAD"] as const) {
+      it(`${method} ${url} responde 200 sin llamar a YouTube`, async () => {
+        const { app, yt } = build();
+        const res = await app.inject({ method, url });
+        assert.equal(res.statusCode, 200);
+        if (method === "HEAD") assert.equal(res.body, "");
+        else assert.equal(res.json().ok, true);
+        assert.equal(yt.calls.length, 0);
+      });
+    }
+  }
+});
