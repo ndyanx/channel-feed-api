@@ -55,8 +55,8 @@ El repo incluye `render.yaml` (Blueprint), así que casi no hay nada que configu
 
 Qué hace el despliegue:
 
-- **Build**: `pnpm install --frozen-lockfile --prod=false && pnpm build && pnpm warm`. `pnpm warm`
-  descarga `libcurl-impersonate` (la librería nativa que usa `impers`) y **falla el build** si no
+- **Build**: `pnpm install --frozen-lockfile --prod=false && pnpm build`. `pnpm build` compila y
+  luego ejecuta `scripts/warm-impers.mjs`, que descarga `libcurl-impersonate` (la librería nativa que usa `impers`) y **falla el build** si no
   puede, para no enterarte en producción de que YouTube recibe tráfico "no navegador".
 - **Start**: `node dist/server.js` (TypeScript ya compilado, menos memoria que `tsx`).
 - `HOST=0.0.0.0` y `TRUST_PROXY=true`: Render usa un proxy, y sin esto el límite por IP vería a
@@ -89,8 +89,9 @@ crear el Blueprint; pon la URL de tu sitio, sin barra final:
 Se cambia sin redeploy de código: Render > Environment > editar > guardar.
 
 Si no usas Blueprint, crea un *Web Service* manual con esos mismos Build/Start Command, y las
-variables `NODE_VERSION=22`, `HOST=0.0.0.0`, `TRUST_PROXY=true`, `CORS_ORIGINS=...` e
-`IMPER_CACHE_DIR=/opt/render/project/src/.cache/impers`.
+variables `NODE_VERSION=22`, `HOST=0.0.0.0`, `TRUST_PROXY=true` y `CORS_ORIGINS=...`.
+La librería se guarda en `.cache/impers` dentro del proyecto sin configurar nada más
+(`IMPER_CACHE_DIR` solo si quieres otra ruta; `IMPER_SKIP_WARM=1` omite la descarga en local).
 
 Aviso: YouTube puede bloquear o limitar las IP de centros de datos (Render incluido). Si ves
 `502`/`503` con `circuit_open` en producción pero funciona en tu PC, es eso.

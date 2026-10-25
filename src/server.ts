@@ -1,9 +1,14 @@
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { ListingCache } from "./cache.js";
 import { ChannelListing, isUpstreamFailure } from "./extractor.js";
 import { UpstreamGate } from "./gate.js";
 import { ChannelResolver } from "./resolver.js";
 import { ChannelService } from "./service.js";
+
+// libcurl-impersonate se descarga en el build (scripts/warm-impers.mjs) a esta carpeta del proyecto.
+// dist/server.js -> ../.cache/impers. Si IMPER_CACHE_DIR ya viene definida, se respeta.
+process.env.IMPER_CACHE_DIR ??= fileURLToPath(new URL("../.cache/impers", import.meta.url));
 
 // --------------------------------------------------------------------------- //
 // Configuracion (variables de entorno)

@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free            # cambia a starter si no quieres que se duerma por inactividad
     region: oregon        # elige la mas cercana a tus usuarios
-    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build && pnpm warm
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build
     startCommand: pnpm start
     healthCheckPath: /health
     autoDeploy: true
@@ -16,9 +16,6 @@ services:
       # Render va detras de un proxy: sin esto el limite por IP vería una sola IP para todos.
       - key: TRUST_PROXY
         value: "true"
-      # libcurl-impersonate se descarga en el build y se guarda dentro del proyecto.
-      - key: IMPER_CACHE_DIR
-        value: /opt/render/project/src/.cache/impers
       # Origen(es) del frontend, separados por comas. Render te lo pedira al crear el Blueprint.
       # Ej: https://mosaico.pages.dev,https://*.mosaico.pages.dev  (el segundo cubre los previews)
       - key: CORS_ORIGINS
