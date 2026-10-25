@@ -4,6 +4,8 @@ import type { HttpSession } from "../src/extractor.js";
 export const vid = (n: number) => `v${String(n).padStart(10, "0")}`;
 export const vids = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => vid(from + i));
+/** Titulo que el YouTube falso asigna a un id (salvo que se pase `titles`). */
+export const titleOf = (id: string) => `Título de ${id}`;
 
 export interface FakeOptions {
   ids: string[];
@@ -13,6 +15,16 @@ export interface FakeOptions {
   shortStyle?: "variants" | "single";
   /** Shorts con variantes: cual manda YouTube (por defecto oar3). */
   variant?: string;
+  /** Titulo por id (por defecto `titleOf(id)`). */
+  titles?: Record<string, string>;
+  /**
+   * Forma en que YouTube manda el titulo:
+   *   "primary"  (defecto) lockupMetadataViewModel / overlayMetadata.primaryText
+   *   "a11y"     shorts: solo accessibilityText ("<titulo>, 1.2M views - play Short")
+   *   "legacy"   videos: videoRenderer.title.runs (formato antiguo)
+   *   "none"     sin titulo en ninguna parte
+   */
+  titleStyle?: "primary" | "a11y" | "legacy" | "none";
 }
 
 /**
@@ -25,6 +37,8 @@ export class FakeYouTube {
   section: string;
   shortStyle: "variants" | "single";
   variant: string;
+  titles: Record<string, string>;
+  titleStyle: "primary" | "a11y" | "legacy" | "none";
   channelExists = true;
   /** Cuantas continuaciones siguientes responderan 500. */
   failContinuations = 0;
@@ -44,6 +58,8 @@ export class FakeYouTube {
     this.section = o.section ?? "videos";
     this.shortStyle = o.shortStyle ?? "variants";
     this.variant = o.variant ?? "oar3";
+    this.titles = o.titles ?? {};
+    this.titleStyle = o.titleStyle ?? "primary";
   }
 
   get continuationCalls(): number {
@@ -135,6 +151,16 @@ export class FakeYouTube {
     return items;
   }
 
+  private titleFor(id: string): string {
+    return this.titles[id] ?? titleOf(id);
+  }
+
+  private shortTitle(id: string): Record<string, unknown> {
+    if (this.titleStyle === "none" || this.titleStyle === "legacy") return {};
+    if (this.titleStyle === "a11y") return { accessibilityText: `${this.titleFor(id)}, 1.2M views - play Short` };
+    return { overlayMetadata: { primaryText: { content: this.titleFor(id) } } };
+  }
+
   private item(id: string): unknown {
     if (this.section === "shorts") {
       const file = this.shortStyle === "single" ? "hq720" : this.variant;
@@ -148,9 +174,26 @@ export class FakeYouTube {
         richItemRenderer: {
           content: {
             shortsLockupViewModel: {
+              ...this.shortTitle(id),
               onTap: { innertubeCommand: { reelWatchEndpoint: { videoId: id } } },
               thumbnailViewModel: {
                 thumbnailViewModel: { image: { sources } },
+              },
+            },
+          },
+        },
+      };
+    }
+    if (this.titleStyle === "legacy") {
+      return {
+        richItemRenderer: {
+          content: {
+            videoRenderer: {
+              videoId: id,
+              publishedTimeText: { simpleText: "hace 1 día" },
+              title: { runs: [{ text: this.titleFor(id) }] },
+              thumbnail: {
+                thumbnails: [{ url: `https://i.ytimg.com/vi/${id}/hq720.jpg`, width: 480, height: 270 }],
               },
             },
           },
@@ -163,6 +206,9 @@ export class FakeYouTube {
           lockupViewModel: {
             contentType: "LOCKUP_CONTENT_TYPE_VIDEO",
             contentId: id,
+            ...(this.titleStyle === "none"
+              ? {}
+              : { metadata: { lockupMetadataViewModel: { title: { content: this.titleFor(id) } } } }),
             contentImage: {
               thumbnailViewModel: {
                 image: {

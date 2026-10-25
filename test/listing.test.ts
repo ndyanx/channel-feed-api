@@ -8,7 +8,7 @@ import {
   listChannel,
   materialize,
 } from "../src/extractor.js";
-import { FakeYouTube, vid, vids } from "./fakeYoutube.js";
+import { FakeYouTube, titleOf, vid, vids } from "./fakeYoutube.js";
 
 const make = (yt: FakeYouTube, extra: Record<string, unknown> = {}) =>
   new ChannelListing({ channel: "@canal", section: yt.section as "videos", sessionFactory: yt.session, ...extra });
@@ -190,5 +190,53 @@ describe("materialize / listChannel", () => {
     assert.deepEqual(items.map((e) => e.id), vids(1, 7));
     const rev = await listChannel({ channel: "@canal", sessionFactory: yt.session, reverse: true });
     assert.deepEqual(rev.map((e) => e.id), vids(1, 7).reverse());
+  });
+});
+
+describe("titulos", () => {
+  const titlesOf = async (yt: FakeYouTube) => {
+    const l = make(yt);
+    await l.extend(() => false);
+    return l.entries.map((e) => e.title);
+  };
+
+  it("videos: lee lockupMetadataViewModel.title.content", async () => {
+    const yt = new FakeYouTube({ ids: vids(1, 3) });
+    assert.deepEqual(await titlesOf(yt), vids(1, 3).map(titleOf));
+  });
+
+  it("shorts: lee overlayMetadata.primaryText.content", async () => {
+    const yt = new FakeYouTube({ ids: vids(1, 3), section: "shorts" });
+    assert.deepEqual(await titlesOf(yt), vids(1, 3).map(titleOf));
+  });
+
+  it("shorts: respaldo accessibilityText sin la cola de vistas", async () => {
+    const yt = new FakeYouTube({
+      ids: vids(1, 2),
+      section: "shorts",
+      titleStyle: "a11y",
+      titles: { [vid(1)]: "Hola, mundo: ¿qué tal?" }, // la coma del titulo no debe romper nada
+    });
+    assert.deepEqual(await titlesOf(yt), ["Hola, mundo: ¿qué tal?", titleOf(vid(2))]);
+  });
+
+  it("formato antiguo (videoRenderer.title.runs)", async () => {
+    const yt = new FakeYouTube({ ids: vids(1, 2), titleStyle: "legacy" });
+    assert.deepEqual(await titlesOf(yt), vids(1, 2).map(titleOf));
+  });
+
+  it("sin titulo en la respuesta: \"\" (el item se lista igual)", async () => {
+    for (const section of ["videos", "shorts"] as const) {
+      const yt = new FakeYouTube({ ids: vids(1, 2), section, titleStyle: "none" });
+      const l = make(yt);
+      await l.extend(() => false);
+      assert.deepEqual(l.entries.map((e) => e.id), vids(1, 2));
+      assert.deepEqual(l.entries.map((e) => e.title), ["", ""]);
+    }
+  });
+
+  it("limpia espacios y saltos de linea", async () => {
+    const yt = new FakeYouTube({ ids: vids(1, 1), titles: { [vid(1)]: "  Un   título\n  con   espacios " } });
+    assert.deepEqual(await titlesOf(yt), ["Un título con espacios"]);
   });
 });

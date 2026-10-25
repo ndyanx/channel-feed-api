@@ -54,6 +54,8 @@ export interface Thumbnail extends ImageSource {
 export interface VideoEntry {
   id: string;
   url: string;
+  /** Título tal como lo muestra YouTube (idioma `hl`). "" si no se pudo leer. */
+  title: string;
   /** Todas las miniaturas, de menor a mayor ancho (en shorts, agrupadas por tamaño). */
   thumbnails: Thumbnail[];
   /** Miniatura base para la card: la mayor entre las `original`. null si no hay ninguna. */
@@ -588,6 +590,67 @@ function describeThumbnails(thumbs: Thumbnail[]): { cover: ImageSource | null; f
   return { cover, frames: frames.length >= 2 ? frames : [] };
 }
 
+/** Texto plano: solo strings, espacios colapsados. */
+const clean = (v: Json): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+
+/** Texto de YouTube: `{ content }` (viewModel), `{ simpleText }` o `{ runs: [{ text }] }`. */
+function textOf(node: Json): string {
+  if (typeof node === "string") return clean(node);
+  if (!node || typeof node !== "object") return "";
+  if (typeof node.content === "string") return clean(node.content);
+  if (typeof node.simpleText === "string") return clean(node.simpleText);
+  if (Array.isArray(node.runs)) return clean(node.runs.map((r: Json) => r?.text ?? "").join(""));
+  return "";
+}
+
+/**
+ * accessibilityText de un short: "<titulo>, 1.2M views - play Short". Solo se usa
+ * si encaja con ese patron (en ingles, `hl: "en"`); si no, mejor sin titulo que uno sucio.
+ */
+const SHORT_A11Y_TAIL = /,\s*[^,]*\bviews?\b[^,]*-\s*play short\s*$/i;
+
+/**
+ * Titulo del item. Rutas conocidas, de la mas a la menos habitual; si ninguna
+ * sirve devuelve "" (el item se lista igual, solo que no aparecera en busquedas por titulo).
+ *   videos / streams: lockupViewModel.metadata.lockupMetadataViewModel.title.content
+ *   formato antiguo:  videoRenderer.title.{runs|simpleText}
+ *   shorts:           shortsLockupViewModel.overlayMetadata.primaryText.content
+ *                     (respaldo: accessibilityText; antiguo: reelItemRenderer.headline)
+ */
+function extractTitle(item: Json): string {
+  const content = at(item, "richItemRenderer", "content") ?? {};
+
+  const lockup = content.lockupViewModel;
+  if (lockup && typeof lockup === "object") {
+    const t = textOf(at(lockup, "metadata", "lockupMetadataViewModel", "title"));
+    if (t) return t;
+    const meta = firstOf(searchKey(lockup, "lockupMetadataViewModel"));
+    const t2 = textOf(at(meta, "title"));
+    if (t2) return t2;
+  }
+
+  const vr = content.videoRenderer;
+  if (vr && typeof vr === "object") {
+    const t = textOf(vr.title);
+    if (t) return t;
+  }
+
+  const short = content.shortsLockupViewModel;
+  if (short && typeof short === "object") {
+    const t = textOf(at(short, "overlayMetadata", "primaryText"));
+    if (t) return t;
+    const a11y = clean(short.accessibilityText);
+    if (SHORT_A11Y_TAIL.test(a11y)) return clean(a11y.replace(SHORT_A11Y_TAIL, ""));
+  }
+
+  const reel = content.reelItemRenderer;
+  if (reel && typeof reel === "object") {
+    const t = textOf(reel.headline);
+    if (t) return t;
+  }
+  return "";
+}
+
 function extractThumbnails(item: Json, section: Section): Thumbnail[] {
   const content = at(item, "richItemRenderer", "content") ?? {};
   if (section === "shorts") {
@@ -756,6 +819,7 @@ export class ChannelListing {
         this.entries.push({
           id,
           url: `${this.urlBase}${id}`,
+          title: extractTitle(item),
           thumbnails,
           ...describeThumbnails(thumbnails),
           animated: extractAnimated(item),

@@ -228,6 +228,7 @@ Con `output=full`, cada item es:
 {
   "id": "cjFZfyjyADE",
   "url": "https://www.youtube.com/shorts/cjFZfyjyADE",
+  "title": "Título del short",
   "thumbnails": [ { "url": "...", "width": 405, "height": 720, "original": true }, ... ],
   "cover":  { "url": "...", "width": 405, "height": 720 },
   "frames": [ "...oar3.jpg?...", "...oardefault.jpg?...", "...oar1.jpg?...", "...oar2.jpg?..." ],
@@ -240,6 +241,7 @@ Con `output=urls` / `ids`, son strings.
 
 | Campo        | Qué es |
 |--------------|--------|
+| `title`      | Título tal como lo muestra YouTube (idioma `hl: "en"` del cliente; no es traducible por petición). `""` si no se pudo leer: el item se lista igual. Con `output=urls` / `ids` no se incluye. |
 | `thumbnails` | Todas las miniaturas, de menor a mayor ancho (en shorts, agrupadas por tamaño). |
 | `original`   | `true` = la mandó YouTube (existe seguro). `false` = variante inferida: **puede no existir**, hay que validarla en el cliente (`onerror`). |
 | `cover`      | Miniatura base para la card: la **mayor entre las `original`** (en empate, la primera). Es la que usa el masonry para calcular el alto (`width`/`height`) y para mostrar la card. `null` si no hay ninguna. |
@@ -283,7 +285,7 @@ son `original`.
 
 ## Estructura
 
-- `src/extractor.ts`: lógica de YouTube (sin Fastify). `ChannelListing` es el listado
+- `src/extractor.ts`: lógica de YouTube (sin Fastify). `extractTitle` lee el título (videos/streams: `lockupMetadataViewModel.title.content`; shorts: `overlayMetadata.primaryText.content`, con `accessibilityText` y formatos antiguos de respaldo). `ChannelListing` es el listado
   reanudable; `materialize` aplica `limit_id` / `max` / `reverse`; `listChannel` es el atajo
   de un solo uso.
 - `src/cache.ts`: caché (TTL, refresco en segundo plano, una descarga por clave, LRU, caché negativo, cooldown de `refresh`).
@@ -295,6 +297,8 @@ son `original`.
   aislada; `protection.test.ts` recorre los escenarios de la tabla de protección de punta a punta.
 
 ## Cambios respecto a la versión anterior
+
+- Items: nuevo campo `title` (string, `""` si YouTube no lo mandó en una ruta conocida).
 
 - `GET /v1/channel` ahora pagina (`offset`, `total`, `has_more`, `cache`, `updated_at`).
 - **`reverse` por defecto es `false`** (antes `true`).

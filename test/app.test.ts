@@ -4,7 +4,7 @@ import { buildApp } from "../src/app.js";
 import { ListingCache } from "../src/cache.js";
 import { ChannelListing } from "../src/extractor.js";
 import { ChannelService } from "../src/service.js";
-import { FakeYouTube, vid, vids } from "./fakeYoutube.js";
+import { FakeYouTube, titleOf, vid, vids } from "./fakeYoutube.js";
 
 function build(yt = new FakeYouTube({ ids: vids(1, 12), pageSize: 5 })) {
   const cache = new ListingCache({
@@ -37,13 +37,14 @@ describe("GET /v1/channel", () => {
     assert.equal(next.body.cache, "hit");
   });
 
-  it("output=full trae id, url, thumbnails, cover, frames, animated y params", async () => {
+  it("output=full trae id, url, title, thumbnails, cover, frames, animated y params", async () => {
     const { app } = build();
     const { body } = await get(app, "/v1/channel?channel=@canal&max=1");
     assert.deepEqual(
       Object.keys(body.items[0]).sort(),
-      ["animated", "cover", "frames", "id", "params", "thumbnails", "url"],
+      ["animated", "cover", "frames", "id", "params", "thumbnails", "title", "url"],
     );
+    assert.equal(body.items[0].title, titleOf(body.items[0].id));
     assert.equal(typeof body.items[0].thumbnails[0].original, "boolean");
   });
 
