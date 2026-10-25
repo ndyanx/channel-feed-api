@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: channel-feed-api
+    runtime: node
+    plan: free            # cambia a starter si no quieres que se duerma por inactividad
+    region: oregon        # elige la mas cercana a tus usuarios
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build && pnpm warm
+    startCommand: pnpm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: HOST
+        value: 0.0.0.0
+      # Render va detras de un proxy: sin esto el limite por IP vería una sola IP para todos.
+      - key: TRUST_PROXY
+        value: "true"
+      # libcurl-impersonate se descarga en el build y se guarda dentro del proyecto.
+      - key: IMPER_CACHE_DIR
+        value: /opt/render/project/src/.cache/impers
+      - key: LOG_LEVEL
+        value: info
