@@ -149,3 +149,64 @@ describe("health (monitores de uptime)", () => {
     }
   }
 });
+
+describe("CORS (frontend en otro dominio)", () => {
+  const buildWith = (corsOrigins?: string[], limits?: Parameters<typeof buildApp>[0]["limits"]) => {
+    const yt = new FakeYouTube({ ids: vids(1, 12), pageSize: 5 });
+    const cache = new ListingCache({ factory: (k) => new ChannelListing({ ...k, sessionFactory: yt.session }) });
+    return buildApp({ service: new ChannelService(cache, { prefetchAhead: 0 }), logger: false, corsOrigins, limits });
+  };
+  const withOrigin = (app: ReturnType<typeof buildWith>, url: string, origin: string) =>
+    app.inject({ method: "GET", url, headers: { origin } });
+
+  it("sin corsOrigins no agrega cabeceras CORS", async () => {
+    const res = await withOrigin(buildWith(), "/health", "https://mosaico.pages.dev");
+    assert.equal(res.headers["access-control-allow-origin"], undefined);
+  });
+
+  it("permite el origen exacto y rechaza otros", async () => {
+    const app = buildWith(["https://mosaico.pages.dev/"]);
+    const ok = await withOrigin(app, "/health", "https://mosaico.pages.dev");
+    assert.equal(ok.headers["access-control-allow-origin"], "https://mosaico.pages.dev");
+    const bad = await withOrigin(app, "/health", "https://otro.com");
+    assert.equal(bad.headers["access-control-allow-origin"], undefined);
+  });
+
+  it("el comodin cubre los previews de Pages pero no dominios parecidos", async () => {
+    const app = buildWith(["https://*.mosaico.pages.dev"]);
+    const preview = await withOrigin(app, "/health", "https://abc123.mosaico.pages.dev");
+    assert.equal(preview.headers["access-control-allow-origin"], "https://abc123.mosaico.pages.dev");
+    for (const evil of ["https://mosaico.pages.dev.evil.com", "https://evil.com/.mosaico.pages.dev", "http://abc.mosaico.pages.dev"]) {
+      const r = await withOrigin(app, "/health", evil);
+      assert.equal(r.headers["access-control-allow-origin"], undefined, evil);
+    }
+  });
+
+  it("las respuestas de error (400) tambien llevan CORS", async () => {
+    const app = buildWith(["https://mosaico.pages.dev"]);
+    const res = await withOrigin(app, "/v1/channel", "https://mosaico.pages.dev");
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers["access-control-allow-origin"], "https://mosaico.pages.dev");
+  });
+
+  it("el 429 lleva CORS y expone Retry-After", async () => {
+    const app = buildWith(["https://mosaico.pages.dev"], { page: { max: 1, windowMs: 60_000 }, all: { max: 1, windowMs: 60_000 } });
+    const url = "/v1/channel?channel=@canal&max=2&output=ids";
+    await withOrigin(app, url, "https://mosaico.pages.dev");
+    const res = await withOrigin(app, url, "https://mosaico.pages.dev");
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.headers["access-control-allow-origin"], "https://mosaico.pages.dev");
+    assert.match(String(res.headers["access-control-expose-headers"]), /retry-after/i);
+  });
+
+  it("el preflight OPTIONS responde 204", async () => {
+    const app = buildWith(["https://mosaico.pages.dev"]);
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/channel",
+      headers: { origin: "https://mosaico.pages.dev", "access-control-request-method": "GET" },
+    });
+    assert.equal(res.statusCode, 204);
+    assert.equal(res.headers["access-control-allow-origin"], "https://mosaico.pages.dev");
+  });
+});

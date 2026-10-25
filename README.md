@@ -41,6 +41,7 @@ Protección (ver [Protección contra sobrecarga](#protección-contra-sobrecarga)
 | `RATE_PAGE_PER_MIN`         | `120`   | Peticiones/min por IP a `/v1/channel` (`0` = sin límite)              |
 | `RATE_ALL_PER_MIN`          | `6`     | Peticiones/min por IP a `/v1/channel/all` (`0` = sin límite)          |
 | `TRUST_PROXY`               | -       | `true` o lista de IP/CIDR del proxy inverso, para ver la IP real      |
+| `CORS_ORIGINS`              | -       | Origen(es) del frontend, separados por comas. Vacío = sin CORS (solo mismo origen / proxy). Admite `*` en el host: `https://*.mosaico.pages.dev` |
 
 Ejemplo: `$env:PORT=4000; $env:CACHE_TTL_SEC=300; pnpm dev`
 
@@ -81,8 +82,14 @@ Detalles:
 - El plan gratis de UptimeRobot es solo para uso personal / no comercial (según sus términos).
 - Si el proyecto pasa a ser un servicio serio, el plan Starter de Render no se duerme y no necesita monitor.
 
+**Importante: `CORS_ORIGINS`.** Si el frontend está en otro dominio (p. ej. Cloudflare Pages), el
+navegador bloquea las respuestas salvo que el backend las autorice. Render te pedirá este valor al
+crear el Blueprint; pon la URL de tu sitio, sin barra final:
+`https://mosaico.pages.dev,https://*.mosaico.pages.dev` (el segundo cubre los previews de Pages).
+Se cambia sin redeploy de código: Render > Environment > editar > guardar.
+
 Si no usas Blueprint, crea un *Web Service* manual con esos mismos Build/Start Command, y las
-variables `NODE_VERSION=22`, `HOST=0.0.0.0`, `TRUST_PROXY=true` e
+variables `NODE_VERSION=22`, `HOST=0.0.0.0`, `TRUST_PROXY=true`, `CORS_ORIGINS=...` e
 `IMPER_CACHE_DIR=/opt/render/project/src/.cache/impers`.
 
 Aviso: YouTube puede bloquear o limitar las IP de centros de datos (Render incluido). Si ves

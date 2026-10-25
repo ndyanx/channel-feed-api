@@ -48,10 +48,14 @@ const service = new ChannelService(cache, { prefetchAhead: int("PREFETCH_AHEAD",
 const perMin = (name: string, def: number) => ({ max: int(name, def), windowMs: 60_000 });
 const limits = { page: perMin("RATE_PAGE_PER_MIN", 120), all: perMin("RATE_ALL_PER_MIN", 6) };
 const trust = process.env.TRUST_PROXY;
+// Origenes del frontend permitidos por CORS, separados por comas. Ej:
+//   CORS_ORIGINS=https://mosaico.pages.dev,https://*.mosaico.pages.dev
+const corsOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
 const app = buildApp({
   service,
   gate,
   limits,
+  corsOrigins,
   trustProxy: trust === undefined ? undefined : trust === "true" ? true : trust === "false" ? false : trust,
 });
 

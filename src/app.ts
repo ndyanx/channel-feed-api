@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyReply, type FastifyRequest, type FastifyServerOptions } from "fastify";
 import { z } from "zod";
@@ -113,6 +114,21 @@ export interface AppOptions {
   limits?: { page: RateLimitRule; all: RateLimitRule } | false;
   /** Fastify `trustProxy`: necesario para ver la IP real detras de un proxy inverso. */
   trustProxy?: boolean | string;
+  /**
+   * Origenes del frontend autorizados por CORS (p. ej. "https://mosaico.pages.dev").
+   * Admite un comodin "*" dentro del host ("https://*.mosaico.pages.dev" para los previews).
+   * Sin esto (o vacio) no se agregan cabeceras CORS: solo funciona mismo origen / proxy.
+   */
+  corsOrigins?: string[];
+}
+
+/** "https://*.x.pages.dev" -> regex anclada; sin "*" -> texto exacto. */
+export function originMatchers(list: string[]): (string | RegExp)[] {
+  const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return list
+    .map((o) => o.trim().replace(/\/+$/, ""))
+    .filter(Boolean)
+    .map((o) => (o.includes("*") ? new RegExp(`^${o.split("*").map(escape).join("[a-z0-9-]+")}$`, "i") : o));
 }
 
 /** El cliente se paso de su cuota (429). El plugin pone Retry-After. */
@@ -124,11 +140,22 @@ class RateLimitError extends Error {
   }
 }
 
-export function buildApp({ service, logger, gate, limits = false, trustProxy }: AppOptions) {
+export function buildApp({ service, logger, gate, limits = false, trustProxy, corsOrigins = [] }: AppOptions) {
   const app = Fastify({
     logger: logger ?? { level: process.env.LOG_LEVEL ?? "info" },
     ...(trustProxy !== undefined ? { trustProxy } : {}),
   });
+
+  const origins = originMatchers(corsOrigins);
+  if (origins.length > 0) {
+    // Solo GET/HEAD: la API es de lectura. Retry-After se expone para que el frontend lo lea en 429/503.
+    app.register(cors, {
+      origin: origins,
+      methods: ["GET", "HEAD", "OPTIONS"],
+      exposedHeaders: ["retry-after"],
+      maxAge: 86_400,
+    });
+  }
 
   if (limits) {
     // global:false: nada se limita salvo las rutas que usan `limit(...)`.

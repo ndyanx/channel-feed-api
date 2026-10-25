@@ -19,5 +19,9 @@ services:
       # libcurl-impersonate se descarga en el build y se guarda dentro del proyecto.
       - key: IMPER_CACHE_DIR
         value: /opt/render/project/src/.cache/impers
+      # Origen(es) del frontend, separados por comas. Render te lo pedira al crear el Blueprint.
+      # Ej: https://mosaico.pages.dev,https://*.mosaico.pages.dev  (el segundo cubre los previews)
+      - key: CORS_ORIGINS
+        sync: false
       - key: LOG_LEVEL
         value: info
