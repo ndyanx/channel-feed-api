@@ -15,6 +15,7 @@ import {
 import type { ListingKey } from "./cache.js";
 import { OverloadedError, type UpstreamGate } from "./gate.js";
 import type { ChannelService } from "./service.js";
+import { MAX_QUERY, MIN_QUERY, normalizeSearchQuery, type SearchService } from "./search.js";
 
 // --------------------------------------------------------------------------- //
 // Validacion de la query
@@ -90,6 +91,21 @@ const AllQuery = z
   })
   .refine(membersRule.check, membersRule.params);
 
+/** GET /v1/search/channels: busqueda de canales por texto, paginada con offset. */
+const SearchQuery = z.object({
+  q: z
+    .string()
+    .transform(normalizeSearchQuery)
+    .pipe(
+      z
+        .string()
+        .min(MIN_QUERY, `q must have at least ${MIN_QUERY} characters`)
+        .max(MAX_QUERY, `q must have at most ${MAX_QUERY} characters`),
+    ),
+  max: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).max(10_000).default(0),
+});
+
 // --------------------------------------------------------------------------- //
 // Aplicacion
 // --------------------------------------------------------------------------- //
@@ -110,8 +126,10 @@ export interface AppOptions {
   logger?: FastifyServerOptions["logger"];
   /** Cola hacia YouTube; solo se usa para mostrar su estado en GET /v1/stats. */
   gate?: UpstreamGate;
-  /** Limite por IP. Sin esto (o con `false`) no hay limite. */
-  limits?: { page: RateLimitRule; all: RateLimitRule } | false;
+  /** Busqueda de canales (GET /v1/search/channels). Sin esto la ruta no existe. */
+  search?: SearchService;
+  /** Limite por IP. Sin esto (o con `false`) no hay limite. `search` es opcional. */
+  limits?: { page: RateLimitRule; all: RateLimitRule; search?: RateLimitRule } | false;
   /** Fastify `trustProxy`: necesario para ver la IP real detras de un proxy inverso. */
   trustProxy?: boolean | string;
   /**
@@ -140,7 +158,7 @@ class RateLimitError extends Error {
   }
 }
 
-export function buildApp({ service, logger, gate, limits = false, trustProxy, corsOrigins = [] }: AppOptions) {
+export function buildApp({ service, search, logger, gate, limits = false, trustProxy, corsOrigins = [] }: AppOptions) {
   const app = Fastify({
     logger: logger ?? { level: process.env.LOG_LEVEL ?? "info" },
     ...(trustProxy !== undefined ? { trustProxy } : {}),
@@ -204,6 +222,7 @@ export function buildApp({ service, logger, gate, limits = false, trustProxy, co
   app.get("/v1/stats", async () => ({
     upstream: gate?.stats() ?? null,
     cache: { entries: service.cacheSize },
+    ...(search ? { search: { entries: search.cacheSize } } : {}),
   }));
 
   app.get("/v1/channel", limit(limits ? limits.page : undefined), async (req, reply) => {
@@ -254,6 +273,26 @@ export function buildApp({ service, logger, gate, limits = false, trustProxy, co
       items: project(r.items, q.output),
     };
   });
+
+  if (search) {
+    app.get("/v1/search/channels", limit(limits ? limits.search : undefined), async (req, reply) => {
+      const parsed = SearchQuery.safeParse(req.query);
+      if (!parsed.success) return reply.code(400).send(invalid(parsed.error));
+      const q = parsed.data;
+
+      const r = await search.page(q.q, q.offset, q.max);
+      return {
+        query: q.q,
+        offset: q.offset,
+        count: r.items.length,
+        total_estimate: r.estimated,
+        has_more: r.hasMore,
+        cache: r.cache,
+        updated_at: iso(r.updatedAt),
+        items: r.items,
+      };
+    });
+  }
 
   app.setErrorHandler((err: Error, req, reply) => {
     if (err instanceof InputError) {

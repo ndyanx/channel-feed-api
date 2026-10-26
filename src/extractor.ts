@@ -156,7 +156,7 @@ export function isUpstreamFailure(err: unknown): boolean {
 // --------------------------------------------------------------------------- //
 
 /** traverse_obj: devuelve undefined si algun paso falla. */
-function at(obj: Json, ...path: (string | number)[]): Json {
+export function at(obj: Json, ...path: (string | number)[]): Json {
   let cur = obj;
   for (const key of path) {
     if (cur === null || cur === undefined) return undefined;
@@ -166,7 +166,7 @@ function at(obj: Json, ...path: (string | number)[]): Json {
 }
 
 /** search_dict: busqueda en anchura; no desciende dentro de un valor que coincide. */
-function* searchKey(root: Json, key: string): Generator<Json> {
+export function* searchKey(root: Json, key: string): Generator<Json> {
   const queue: Json[] = [root];
   for (let head = 0; head < queue.length; head++) {
     const cur = queue[head];
@@ -181,7 +181,7 @@ function* searchKey(root: Json, key: string): Generator<Json> {
   }
 }
 
-const firstOf = (gen: Generator<Json>): Json => {
+export const firstOf = (gen: Generator<Json>): Json => {
   const r = gen.next();
   return r.done ? undefined : r.value;
 };
@@ -221,7 +221,7 @@ const THUMB_PATHS_SHORTS = [
 
 const UC_ID = /^UC[\w-]{22}$/;
 
-type Cont = [ctp: string, token: string];
+export type Cont = [ctp: string, token: string];
 
 // --------------------------------------------------------------------------- //
 // Entrada
@@ -243,7 +243,7 @@ export function parseChannel(channel: string): string {
 // Cliente innertube
 // --------------------------------------------------------------------------- //
 
-class Innertube {
+export class Innertube {
   private client: Record<string, unknown> = { ...WEB_CLIENT };
   private headers: Record<string, string>;
 
@@ -384,7 +384,7 @@ function chipOptions(chip: Json): Json[] | undefined {
 }
 
 /** (clickTrackingParams, token) de un endpoint de continuacion. */
-function parseEndpoint(endpoint: Json): Cont | undefined {
+export function parseEndpoint(endpoint: Json): Cont | undefined {
   if (!endpoint) return undefined;
   const ctp = endpoint.clickTrackingParams;
   const token = at(endpoint, "continuationCommand", "token");
@@ -693,7 +693,7 @@ async function nextPage(yt: Innertube, [ctp, token]: Cont, retries = 3): Promise
 // Listado reanudable
 // --------------------------------------------------------------------------- //
 
-function asKnownError(err: unknown): Error {
+export function asKnownError(err: unknown): Error {
   if (
     err instanceof ChannelError ||
     err instanceof UpstreamError ||

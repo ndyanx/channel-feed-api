@@ -1,7 +1,7 @@
 # channel-feed-api
 
 API (Fastify + TypeScript + `impers`) para listar videos / shorts / directos de un
-canal de YouTube. Es el port del flujo JSON de `youtube_channel.py`, con caché en memoria y
+canal de YouTube y para buscar canales por texto. Es el port del flujo JSON de `youtube_channel.py`, con caché en memoria y
 paginación.
 
 ## Arrancar (PowerShell)
@@ -40,6 +40,9 @@ Protección (ver [Protección contra sobrecarga](#protección-contra-sobrecarga)
 | `REFRESH_COOLDOWN_SEC`      | `30`    | Edad mínima de una lista para aceptar `refresh=true`                  |
 | `RATE_PAGE_PER_MIN`         | `120`   | Peticiones/min por IP a `/v1/channel` (`0` = sin límite)              |
 | `RATE_ALL_PER_MIN`          | `6`     | Peticiones/min por IP a `/v1/channel/all` (`0` = sin límite)          |
+| `RATE_SEARCH_PER_MIN`       | `60`    | Peticiones/min por IP a `/v1/search/channels` (`0` = sin límite)      |
+| `SEARCH_TTL_SEC`            | `300`   | Vigencia de una búsqueda de canales en caché (5 min)                  |
+| `SEARCH_MAX_ENTRIES`        | `100`   | Búsquedas en memoria (se expulsa la menos usada)                      |
 | `TRUST_PROXY`               | -       | `true` o lista de IP/CIDR del proxy inverso, para ver la IP real      |
 | `CORS_ORIGINS`              | -       | Origen(es) del frontend, separados por comas. Vacío = sin CORS (solo mismo origen / proxy). Admite `*` en el host: `https://*.mosaico.pages.dev` |
 
@@ -220,6 +223,68 @@ desconecta, la descarga sigue y queda en caché.
 
 (Comillas siempre: en PowerShell `&` rompe la URL. Y `curl.exe`, no `curl`, que es un alias.)
 
+### `GET /v1/search/channels` — buscar canales por texto
+
+Es el buscador de YouTube con el filtro «Tipo: Canal». Sirve para que el frontend ofrezca
+sugerencias mientras se escribe y una página de resultados con scroll infinito.
+
+| Parámetro | Valores | Default |
+|-----------|---------|---------|
+| `q`       | 2 a 100 caracteres (se normaliza: minúsculas y espacios colapsados) | requerido |
+| `max`     | 1 a 50: tamaño de página | 20 |
+| `offset`  | ≥ 0: cuántos canales saltar | 0 |
+
+```powershell
+curl.exe "http://127.0.0.1:3000/v1/search/channels?q=calming+corner&max=8"
+curl.exe "http://127.0.0.1:3000/v1/search/channels?q=calming+corner&max=20&offset=20"
+```
+
+Respuesta:
+
+```json
+{ "query": "calming corner", "offset": 0, "count": 8, "total_estimate": 59193,
+  "has_more": true, "cache": "miss", "updated_at": "2026-10-25T...Z", "items": [] }
+```
+
+- `total_estimate` es lo que dice YouTube (aproximado); `null` si no lo manda. No es exacto: usa
+  `has_more` para saber si hay más.
+- La primera página de YouTube trae ~20 canales y cada continuación otros ~20. El token de
+  continuación (más de 1000 caracteres) se guarda en el servidor: el cliente solo manda `offset`.
+- YouTube repite algunos canales entre páginas: se deduplican por `id`.
+- Misma búsqueda (aunque cambien mayúsculas o espacios) = misma entrada de caché; peticiones
+  simultáneas comparten una sola descarga. Los errores no se guardan. Tope de 500 canales por búsqueda.
+- Pasa por la misma cola global y el mismo circuit breaker que los listados, y tiene su propio
+  límite por IP (`RATE_SEARCH_PER_MIN`).
+
+Cada item:
+
+```json
+{
+  "id": "UCviaNX80vacpLyFUNSDLzZQ",
+  "url": "https://www.youtube.com/@calming_cornerASMR",
+  "handle": "@calming_cornerASMR",
+  "title": "calming corner ASMR",
+  "description": "Just a random Russian woman helping you get tingles...",
+  "subscribers_text": "36.3K subscribers",
+  "subscribers": 36300,
+  "thumbnails": [
+    { "url": "https://yt3.ggpht.com/ABBf...=s88-c-k-c0x00ffffff-no-rj-mo", "width": 88, "height": 88 },
+    { "url": "https://yt3.ggpht.com/ABBf...=s176-c-k-c0x00ffffff-no-rj-mo", "width": 176, "height": 176 }
+  ]
+}
+```
+
+| Campo              | Qué es |
+|--------------------|--------|
+| `thumbnails`       | Avatar del canal, de menor a mayor ancho (YouTube manda 88 y 176 px). Las URL vienen de YouTube como `//yt3.ggpht.com/...`; la API les pone `https:`. `[]` si no hay. |
+| `handle`           | `@handle`, o `null` si el canal no tiene. Con él (o con `id`) se abre el canal en `/v1/channel`. |
+| `subscribers_text` | Texto de YouTube tal cual (idioma `hl: "en"`); `null` si el canal oculta sus suscriptores. |
+| `subscribers`      | Número aproximado leído de `subscribers_text` (`36.3K` -> 36300); `null` si no se pudo. |
+| `description`      | Extracto de la descripción; `""` si no hay. |
+
+Ojo: en el JSON de YouTube los nombres están cruzados (`videoCountText` trae los suscriptores y
+`subscriberCountText` trae el @handle). La API lo lee por contenido, no por nombre.
+
 ### Items
 
 Con `output=full`, cada item es:
@@ -292,11 +357,18 @@ son `original`.
 - `src/gate.ts`: cola global hacia YouTube (concurrencia, espaciado, prioridades, cola acotada, circuit breaker).
 - `src/resolver.ts`: `@handle` -> id de canal, compartido entre listados.
 - `src/service.ts`: casos de uso `page` y `all`.
+- `src/search.ts`: búsqueda de canales (`ChannelSearch` reanudable, `SearchCache`, `SearchService`) y las
+  funciones puras que leen el JSON de YouTube (`parseChannelRenderer`, `parseSearchPage`, `parseSubscribers`).
 - `src/app.ts`: validación (zod), rutas y mapeo de errores. `src/server.ts`: configuración y arranque.
-- `test/`: tests con `node:test` y un YouTube falso (`fakeYoutube.ts`). `gate.test.ts` prueba la cola
+- `test/`: tests con `node:test` y un YouTube falso (`fakeYoutube.ts`; `fakeSearch.ts` para la búsqueda de canales,
+  con `channelRenderer` en la forma real de YouTube). `gate.test.ts` prueba la cola
   aislada; `protection.test.ts` recorre los escenarios de la tabla de protección de punta a punta.
 
 ## Cambios respecto a la versión anterior
+
+- Nuevo `GET /v1/search/channels` (búsqueda de canales con avatar, handle, suscriptores y descripción).
+  Variables nuevas: `RATE_SEARCH_PER_MIN`, `SEARCH_TTL_SEC`, `SEARCH_MAX_ENTRIES`. `GET /v1/stats` añade
+  `search.entries`. Sin cambios en los demás endpoints.
 
 - Items: nuevo campo `title` (string, `""` si YouTube no lo mandó en una ruta conocida).
 

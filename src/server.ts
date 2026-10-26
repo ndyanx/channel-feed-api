@@ -5,6 +5,7 @@ import { ChannelListing, isUpstreamFailure } from "./extractor.js";
 import { UpstreamGate } from "./gate.js";
 import { ChannelResolver } from "./resolver.js";
 import { ChannelService } from "./service.js";
+import { ChannelSearch, SearchCache, SearchService } from "./search.js";
 
 // --------------------------------------------------------------------------- //
 // Configuracion (variables de entorno)
@@ -45,15 +46,28 @@ const cache = new ListingCache({
 });
 const service = new ChannelService(cache, { prefetchAhead: int("PREFETCH_AHEAD", 60) });
 
+// Busqueda de canales: misma cola hacia YouTube, su propio cache (textos normalizados).
+const searchCache = new SearchCache({
+  factory: (query) => new ChannelSearch({ query, gate, log: (msg) => app.log.debug(msg) }),
+  ttlMs: int("SEARCH_TTL_SEC", 300) * 1000,
+  maxEntries: int("SEARCH_MAX_ENTRIES", 100),
+});
+const search = new SearchService(searchCache);
+
 // Limite por IP (0 = sin limite). Detras de un proxy inverso, activa TRUST_PROXY.
 const perMin = (name: string, def: number) => ({ max: int(name, def), windowMs: 60_000 });
-const limits = { page: perMin("RATE_PAGE_PER_MIN", 120), all: perMin("RATE_ALL_PER_MIN", 6) };
+const limits = {
+  page: perMin("RATE_PAGE_PER_MIN", 120),
+  all: perMin("RATE_ALL_PER_MIN", 6),
+  search: perMin("RATE_SEARCH_PER_MIN", 60),
+};
 const trust = process.env.TRUST_PROXY;
 // Origenes del frontend permitidos por CORS, separados por comas. Ej:
 //   CORS_ORIGINS=https://mosaico.pages.dev,https://*.mosaico.pages.dev
 const corsOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
 const app = buildApp({
   service,
+  search,
   gate,
   limits,
   corsOrigins,
