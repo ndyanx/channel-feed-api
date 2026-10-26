@@ -5,7 +5,7 @@
  *   all  -> GET /v1/channel/all  la lista completa (o hasta limit_id / max)
  */
 
-import { materialize, type VideoEntry } from "./extractor.js";
+import { materialize, type ChannelListing, type VideoEntry } from "./extractor.js";
 import type { CacheStatus, ListingCache, ListingKey } from "./cache.js";
 
 export interface PageParams {
@@ -47,6 +47,9 @@ export interface ServiceOptions {
   prefetchAhead?: number;
 }
 
+/** Momento en que la lista cambio por ultima vez (no el de la ultima descarga). */
+const stamp = (l: ChannelListing): number => l.changedAt ?? l.fetchedAt ?? Date.now();
+
 export class ChannelService {
   private readonly prefetchAhead: number;
 
@@ -62,6 +65,11 @@ export class ChannelService {
     return this.cache.size;
   }
 
+  /** Items en memoria sumando todos los listados (para /v1/stats). */
+  get cacheItems(): number {
+    return this.cache.itemCount;
+  }
+
   async page(key: ListingKey, p: PageParams): Promise<PageResult> {
     const { listing, status } = await this.cache.acquire(key);
     const end = p.offset + p.max;
@@ -75,7 +83,7 @@ export class ChannelService {
         total: listing.complete ? listing.entries.length : null,
         hasMore: !listing.complete || end < listing.entries.length,
         cache: status,
-        updatedAt: listing.fetchedAt ?? Date.now(),
+        updatedAt: stamp(listing),
       };
       if (this.prefetchAhead > 0 && !listing.complete) {
         const target = end + this.prefetchAhead;
@@ -93,7 +101,7 @@ export class ChannelService {
       total: view.items.length,
       hasMore: end < view.items.length,
       cache: status,
-      updatedAt: listing.fetchedAt ?? Date.now(),
+      updatedAt: stamp(listing),
     };
   }
 
@@ -104,7 +112,7 @@ export class ChannelService {
       items: view.items,
       complete: view.complete,
       cache: status,
-      updatedAt: listing.fetchedAt ?? Date.now(),
+      updatedAt: stamp(listing),
     };
   }
 }

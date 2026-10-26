@@ -221,7 +221,7 @@ export function buildApp({ service, search, logger, gate, limits = false, trustP
 
   app.get("/v1/stats", async () => ({
     upstream: gate?.stats() ?? null,
-    cache: { entries: service.cacheSize },
+    cache: { entries: service.cacheSize, items: service.cacheItems },
     ...(search ? { search: { entries: search.cacheSize } } : {}),
   }));
 

@@ -720,6 +720,11 @@ export class ChannelListing {
   complete = false;
   /** ms en que se descargo la primera pagina; undefined mientras no empiece. */
   fetchedAt: number | undefined;
+  /**
+   * ms en que la lista cambio por ultima vez. Igual a `fetchedAt` salvo que un refresco
+   * traiga lo mismo: entonces el cache le copia el `changedAt` de la lista anterior.
+   */
+  changedAt: number | undefined;
 
   private readonly ids = new Set<string>();
   private readonly path: string;
@@ -785,6 +790,7 @@ export class ChannelListing {
         this.absorb(first.contents, first.next);
         this.started = true;
         this.fetchedAt = this.now();
+        this.changedAt = this.fetchedAt;
       }
       while (!this.complete && !enough()) {
         const body = await nextPage(yt, this.next!);

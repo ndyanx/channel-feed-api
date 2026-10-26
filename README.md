@@ -22,6 +22,9 @@ Escucha en `http://127.0.0.1:3000` (solo tu máquina). Variables de entorno:
 | `LOG_LEVEL`         | `info`      |                                                                 |
 | `CACHE_TTL_SEC`     | `600`       | Vigencia de una lista en caché (10 min)                         |
 | `CACHE_MAX_ENTRIES` | `50`        | Listas en memoria (se expulsa la menos usada)                   |
+| `CACHE_MAX_ITEMS`   | `30000`     | Tope de items sumando todas las listas en memoria (se expulsa la menos usada; la que se sirve nunca) |
+| `CACHE_MAX_STALE_SEC` | `21600`   | Edad máxima (6 h) para servir una lista vencida sin esperar; pasada, se espera una descarga nueva |
+| `CACHE_STALE_IF_ERROR_SEC` | `86400` | Si esa descarga nueva falla, se sirve la vieja mientras tenga menos de esta edad (24 h) |
 | `REFRESH_PREFIX`    | `300`       | Items que se vuelven a bajar en un refresco en segundo plano    |
 | `PREFETCH_AHEAD`    | `60`        | Items extra que se bajan en segundo plano tras responder una página (`0` = nada) |
 
@@ -110,13 +113,22 @@ Una lista = **canal + section + sort_by + members**. Todo lo demás (`max`, `off
 - Pasados los 10 min, `/v1/channel` responde **al instante con lo viejo** (`cache: "stale"`) y
   refresca por detrás; si el refresco falla sigue sirviendo lo viejo y espera 30 s antes de
   reintentar. `/v1/channel/all` **espera datos frescos** (o usa lo viejo con `stale=ok`).
+- **Tope de edad del stale** (`CACHE_MAX_STALE_SEC`, 6 h): una lista más vieja que eso ya no se
+  sirve al instante; se espera a una descarga nueva. Si esa descarga falla y la lista tiene menos
+  de `CACHE_STALE_IF_ERROR_SEC` (24 h), se sirve la vieja (`cache: "stale"`) en vez de dar 502/503.
+  Un canal que ya no existe da 404 (no se sirve de caché).
+- **Tope de memoria**: además de `CACHE_MAX_ENTRIES`, el total de items de todas las listas se
+  limita con `CACHE_MAX_ITEMS`. Una sola lista mayor que el tope se conserva mientras se usa.
 - Peticiones simultáneas de la misma lista comparten una sola descarga.
 - Los errores (canal inexistente, red) **no** se guardan en caché.
 - Es memoria del proceso: al reiniciar el servidor se pierde.
 
 El campo `cache` de la respuesta indica qué pasó: `miss` (no había nada), `hit` (dentro del
 TTL), `stale` (se sirvió lo vencido y se refresca por detrás) o `refresh` (se esperó una
-descarga nueva). `updated_at` es el momento en que se bajó la primera página.
+descarga nueva). `updated_at` es el momento en que **la lista cambió por última vez**: al refrescar, si el
+principio de la lista nueva es igual al de la vieja (y no aparecen ni desaparecen items en los
+extremos conocidos), `updated_at` se conserva. Así solo cambia cuando hay videos nuevos o
+borrados, y el frontend puede usarlo para avisar de que conviene recargar sin falsas alarmas.
 
 ## Protección contra sobrecarga
 
@@ -345,7 +357,7 @@ son `original`.
 { "upstream": { "running": 2, "queued": { "interactive": 3, "background": 0 },
                 "concurrency": 2, "maxQueue": 100, "circuit": "closed", "started": 412,
                 "rejected": { "queue_full": 0, "queue_timeout": 0, "circuit_open": 0 } },
-  "cache": { "entries": 7 } }
+  "cache": { "entries": 7, "items": 1840 } }
 ```
 
 ## Estructura
@@ -365,6 +377,11 @@ son `original`.
   aislada; `protection.test.ts` recorre los escenarios de la tabla de protección de punta a punta.
 
 ## Cambios respecto a la versión anterior
+
+- Caché: `updated_at` ahora marca el último cambio real de la lista (antes, la última descarga);
+  tope de edad del stale (`CACHE_MAX_STALE_SEC`) y stale-if-error (`CACHE_STALE_IF_ERROR_SEC`);
+  tope de items en memoria (`CACHE_MAX_ITEMS`). `GET /v1/stats` añade `cache.items`.
+  Sin cambios en el formato de las respuestas ni en el frontend.
 
 - Nuevo `GET /v1/search/channels` (búsqueda de canales con avatar, handle, suscriptores y descripción).
   Variables nuevas: `RATE_SEARCH_PER_MIN`, `SEARCH_TTL_SEC`, `SEARCH_MAX_ENTRIES`. `GET /v1/stats` añade

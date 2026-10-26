@@ -171,7 +171,7 @@ describe("cache: frescura", () => {
     await cache.whenIdle();
     const c = await service.page(KEY, pageArgs);
     assert.equal(c.cache, "hit");
-    assert.equal(c.updatedAt, 11 * MIN + 31_000);
+    assert.equal(c.updatedAt, 0); // la lista no cambio: updated_at se conserva
   });
 
   it("un fallo en la primera descarga no se guarda en cache", async () => {
@@ -257,11 +257,89 @@ describe("all (GET /v1/channel/all)", () => {
     assert.equal(r.items[0]!.id, vid(99));
   });
 
-  it("si la descarga fresca falla, devuelve el error (no datos viejos)", async () => {
+  it("si la descarga fresca falla, sirve lo viejo mientras no pase staleIfError", async () => {
     const { yt, service } = setup();
     await service.all(KEY, allArgs);
     t = 11 * MIN;
     yt.failAll = true;
+    const r = await service.all(KEY, allArgs);
+    assert.equal(r.cache, "stale");
+    assert.equal(r.items.length, 12);
+  });
+
+  it("si la descarga fresca falla y lo viejo supera staleIfError, devuelve el error", async () => {
+    const { yt, service } = setup();
+    await service.all(KEY, allArgs);
+    t = 25 * 60 * MIN; // 25 h
+    yt.failAll = true;
     await assert.rejects(service.all(KEY, allArgs), UpstreamError);
+  });
+});
+
+describe("cache: updated_at por contenido", () => {
+  it("un refresco con la misma lista conserva updated_at; uno con video nuevo lo cambia", async () => {
+    const { yt, cache, service } = setup();
+    const first = await service.page(KEY, pageArgs);
+    assert.equal(first.updatedAt, 0);
+
+    t = 11 * MIN; // vencida, mismo contenido
+    await service.page(KEY, pageArgs);
+    await cache.whenIdle();
+    const same = await service.page(KEY, pageArgs);
+    assert.equal(same.cache, "hit");
+    assert.equal(same.updatedAt, 0);
+
+    yt.ids = [vid(99), ...yt.ids]; // video nuevo
+    t = 22 * MIN;
+    await service.page(KEY, pageArgs);
+    await cache.whenIdle();
+    const changed = await service.page(KEY, pageArgs);
+    assert.equal(changed.updatedAt, 22 * MIN);
+    assert.equal(ID(changed.items)[0], vid(99));
+  });
+});
+
+describe("cache: edad maxima del stale", () => {
+  it("pasado maxStaleMs espera datos frescos aunque acepte stale", async () => {
+    const { yt, service } = setup();
+    await service.all(KEY, { ...allArgs, staleOk: true });
+    yt.ids = [vid(99), ...yt.ids];
+    t = 7 * 60 * MIN; // 7 h > 6 h
+    const r = await service.all(KEY, { ...allArgs, staleOk: true });
+    assert.equal(r.cache, "refresh");
+    assert.equal(r.items[0]!.id, vid(99));
+  });
+
+  it("un canal que ya no existe da 404 en vez de servir lo viejo", async () => {
+    const { yt, cache, service } = setup();
+    await service.all(KEY, allArgs);
+    yt.channelExists = false;
+    t = 11 * MIN;
+    await assert.rejects(service.all(KEY, allArgs), ChannelError);
+    assert.equal(cache.size, 0);
+  });
+});
+
+describe("cache: limite de items", () => {
+  it("expulsa lo menos usado cuando el total supera maxItems", async () => {
+    t = 0;
+    const yt = new FakeYouTube({ ids: vids(1, 12), pageSize: 5 });
+    const cache = new ListingCache({
+      factory: (k) => new ChannelListing({ ...k, sessionFactory: yt.session, now }),
+      maxItems: 20,
+      now,
+    });
+    const service = new ChannelService(cache, { prefetchAhead: 0 });
+    const A: ListingKey = { ...KEY, channel: "@canal_a" };
+    const B: ListingKey = { ...KEY, channel: "@canal_b" };
+    const C: ListingKey = { ...KEY, channel: "@canal_c" };
+    await service.all(A, allArgs); // 12 items
+    await service.all(B, allArgs); // 24 > 20, pero B es la que se usa: se expulsa A en el siguiente acquire
+    await service.page(B, pageArgs);
+    assert.equal(cache.size, 1);
+    await service.all(C, allArgs);
+    await service.page(C, pageArgs);
+    assert.equal(cache.size, 1);
+    assert.ok(cache.itemCount <= 20);
   });
 });
